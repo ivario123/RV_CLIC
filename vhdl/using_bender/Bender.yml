@@ -1,0 +1,16 @@
+# Package metadata. Required.
+package:
+  # The name of the package. Required.
+  name: Clic
+
+  # The list of package authors and contributors. Optional.
+  # By convention, authors should be listed in the form shown below.
+  authors: ["Ivar Jönsson <ivajns-9@student.ltu.se>"]
+
+# No dependencies at this time
+# In the future will be specified as 
+#
+# dependencies:
+#   some_dependency = {git="some git url",version= 0.0.0}
+
+

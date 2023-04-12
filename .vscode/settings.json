@@ -1,0 +1,14 @@
+{
+    "[markdown]": {
+        "editor.defaultFormatter": null
+    },
+    "[systemverilog]": {
+        "editor.defaultFormatter": "bmpenuelas.systemverilog-formatter-vscode"
+    },
+    "[jsonc]": {
+        "editor.defaultFormatter": null
+    },
+    "[ignore]": {
+        "editor.defaultFormatter": null
+    }
+}

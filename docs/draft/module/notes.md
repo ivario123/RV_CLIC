@@ -62,5 +62,4 @@ All non existent inputs are tied to 0.
 ## §4.2 CLIC Interrupt Pending (clicintip)
 
 interrupt pending should be interpreted as $`(clicintip[i]~\&\&~ clicintie[i]) \neq 0 \rightarrow interrupt~pending`$,
-software pending or enabeling interrupts must take effect in a bounded amount of time ( I would like to have this bound to 1 cycle ).
-
+software pending or enabling interrupts must take effect in a bounded amount of time ( I would like to have this bound to 1 cycle ). However there is no hard requirement that the $`clicintie`$ or $`clicintip`$ be evaluated immediately after explicit write to them.

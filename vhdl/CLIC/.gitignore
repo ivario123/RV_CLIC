@@ -1,0 +1,10 @@
+# Vivado ignores
+*.cache
+*.hw
+*.ip_user_files
+*.log
+*.sim
+*.runs
+*.bd
+*.vscode
+# Xilinx
