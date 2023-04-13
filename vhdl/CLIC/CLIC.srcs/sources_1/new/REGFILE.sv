@@ -125,7 +125,7 @@ module REGFILE #(
       .ADDRESS_WIDTH(32),
       .REGISTERS(SOURCES),
       .START_ADDRESS(32'h1000),
-      .REG_SPACING(4 * 4)
+      .REG_SPACING(4) // This equates to 4 registers inbetween each register, which means that we wrap around to the next register.
   ) clicintip (
       .clock(clock),
       .reset(reset),
@@ -141,7 +141,7 @@ module REGFILE #(
       .ADDRESS_WIDTH(32),
       .REGISTERS(SOURCES),
       .START_ADDRESS(32'h1001),
-      .REG_SPACING(4 * 4)
+      .REG_SPACING(4) // This equates to 4 registers inbetween each register, which means that we wrap around to the next register.
   ) clicintie (
       .clock(clock),
       .reset(reset),
@@ -157,7 +157,7 @@ module REGFILE #(
       .ADDRESS_WIDTH(32),
       .REGISTERS(SOURCES),
       .START_ADDRESS(32'h1002),
-      .REG_SPACING(4 * 4)
+      .REG_SPACING(4)
   ) clicintattr (
       .clock(clock),
       .reset(reset),
@@ -173,7 +173,7 @@ module REGFILE #(
       .ADDRESS_WIDTH(32),
       .REGISTERS(SOURCES),
       .START_ADDRESS(32'h1003),
-      .REG_SPACING(4 * 4)
+      .REG_SPACING(4) // This equates to 4 registers inbetween each register, which means that we wrap around to the next register.
   ) clicintctl (
       .clock(clock),
       .reset(reset),
