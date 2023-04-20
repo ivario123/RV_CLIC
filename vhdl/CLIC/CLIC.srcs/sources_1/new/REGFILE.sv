@@ -60,10 +60,10 @@ module REGFILE #(
     output [31:0] out_cliccfg[0:0],
     output [31:0] out_clicinfo[0:0],
     output [31:0] out_clicinttrig[31:0],
-    output [31:0] out_clicintip[SOURCES-1:0],
-    output [31:0] out_clicintie[SOURCES-1:0],
-    output [31:0] out_clicintattr[SOURCES-1:0],
-    output [31:0] out_clicintctl[SOURCES-1:0]
+    output [7:0] out_clicintip[SOURCES-1:0],
+    output [7:0] out_clicintie[SOURCES-1:0],
+    output [7:0] out_clicintattr[SOURCES-1:0],
+    output [7:0] out_clicintctl[SOURCES-1:0]
 
 );
   /*
@@ -105,23 +105,22 @@ module REGFILE #(
       .registers(out_clicinfo)
   );
 
-  REGBLOCK #(
-      .DATA_WIDTH(32),
-      .ADDRESS_WIDTH(32),
-      .REGISTERS(32),
-      .START_ADDRESS(32'h0040)
-  ) clicinttrig (
+  // Need to use distinct module for WARL registers since they have 
+  // specific behaviour for specific write_data values.
+  clicinttrig #(
+      .SOURCES(32)
+  ) clicinttrig_reg (
       .clock(clock),
       .reset(reset),
       .address(address),
       .write_enable(write_enable),
-      .write_data(write_data),
+      .write_data_in(write_data),
       .read_data(read_data),
       .registers(out_clicinttrig)
   );
 
   REGBLOCK #(
-      .DATA_WIDTH(32),
+      .DATA_WIDTH(8),
       .ADDRESS_WIDTH(32),
       .REGISTERS(SOURCES),
       .START_ADDRESS(32'h1000),
@@ -137,11 +136,11 @@ module REGFILE #(
   );
 
   REGBLOCK #(
-      .DATA_WIDTH(32),
+      .DATA_WIDTH(8),
       .ADDRESS_WIDTH(32),
       .REGISTERS(SOURCES),
       .START_ADDRESS(32'h1001),
-      .REG_SPACING(4) // This equates to 4 registers inbetween each register, which means that we wrap around to the next register.
+      .REG_SPACING(4)
   ) clicintie (
       .clock(clock),
       .reset(reset),
@@ -152,24 +151,25 @@ module REGFILE #(
       .registers(out_clicintie)
   );
 
-  REGBLOCK #(
-      .DATA_WIDTH(32),
-      .ADDRESS_WIDTH(32),
-      .REGISTERS(SOURCES),
-      .START_ADDRESS(32'h1002),
-      .REG_SPACING(4)
-  ) clicintattr (
+  // Specifies behaviour for clicintattr register.
+  // This is a WARL register, so we need to specify the behaviour for specific write_data values.
+  clicintattr #(
+      .SOURCES(SOURCES)
+  ) clicintattr_reg (
       .clock(clock),
       .reset(reset),
       .address(address),
       .write_enable(write_enable),
-      .write_data(write_data),
+      .write_data_in(write_data),
       .read_data(read_data),
       .registers(out_clicintattr)
   );
 
+
+  // While this is a WARL register we will set it WARA (Write Any Value, Read Any Value)
+  // since we want to use all 4096 interrupts.
   REGBLOCK #(
-      .DATA_WIDTH(32),
+      .DATA_WIDTH(8),
       .ADDRESS_WIDTH(32),
       .REGISTERS(SOURCES),
       .START_ADDRESS(32'h1003),
@@ -183,5 +183,190 @@ module REGFILE #(
       .read_data(read_data),
       .registers(out_clicintctl)
   );
+
+  // ===========================================================
+  //                        CSRREGISTERS
+  // ===========================================================
+
+  REGISTER #(
+      .ADDRESS(32'h300)
+  ) mstatus (
+      .clock(clock),
+      .reset(reset),
+      .address(address),
+      .write_enable(write_enable),
+      .write_data(write_data),
+      .read_data(read_data)
+  );
+  // Trap-handler base address / interrupt mode
+  REGISTER #(
+      .ADDRESS(32'h305),
+      .WIDTH  (8)
+  ) mtvec (
+      .clock(clock),
+      .reset(reset),
+      .address(address),
+      .write_enable(write_enable),
+      .write_data(write_data[7:0]),
+      .read_data(read_data[7:0])
+  );
+  // Trap-handler vector table base address
+  REGISTER #(
+      .ADDRESS(32'h307),
+      .WIDTH(32)  // Not sure about this one, only logical imo since address width is 32
+  ) mtvt (
+      .clock(clock),
+      .reset(reset),
+      .address(address),
+      .write_enable(write_enable),
+      .write_data(write_data),
+      .read_data(read_data)
+  );
+  // Scratch register for trap handlers
+  REGISTER #(
+      .ADDRESS(32'h340),
+      .WIDTH  (8)
+  ) mscratch (
+      .clock(clock),
+      .reset(reset),
+      .address(address),
+      .write_enable(write_enable),
+      .write_data(write_data[7:0]),
+      .read_data(read_data[7:0])
+  );
+  // Exception program counter
+  REGISTER #(
+      .ADDRESS(32'h341),
+      .WIDTH  (8)
+  ) mepc (
+      .clock(clock),
+      .reset(reset),
+      .address(address),
+      .write_enable(write_enable),
+      .write_data(write_data[7:0]),
+      .read_data(read_data[7:0])
+  );
+  // Cause of trap
+  REGISTER #(
+      .ADDRESS(32'h342),
+      .WIDTH  (8)
+  ) mcause (
+      .clock(clock),
+      .reset(reset),
+      .address(address),
+      .write_enable(write_enable),
+      .write_data(write_data[7:0]),
+      .read_data(read_data[7:0])
+  );
+  // Bad address or instruction
+  REGISTER #(
+      .ADDRESS(32'h343),
+      .WIDTH  (8)
+  ) mtval (
+      .clock(clock),
+      .reset(reset),
+      .address(address),
+      .write_enable(write_enable),
+      .write_data(write_data[7:0]),
+      .read_data(read_data[7:0])
+  );
+  // Interrupt handler address and enable modifier
+  REGISTER #(
+      .ADDRESS(32'h345),
+      .WIDTH(16)  // Really not sure about this one, think it's one per interrupt??
+  ) mnxti (
+      .clock(clock),
+      .reset(reset),
+      .address(address),
+      .write_enable(write_enable),
+      .write_data(write_data[15:0]),
+      .read_data(read_data[15:0])
+  );
+  // Interrupt-level threshold
+  REGISTER #(
+      .ADDRESS(32'h347),
+      .WIDTH  (8)
+  ) mintthresh (
+      .clock(clock),
+      .reset(reset),
+      .address(address),
+      .write_enable(write_enable),
+      .write_data(write_data[7:0]),
+      .read_data(read_data[7:0])
+  );
+  // Conditional scratch swap on priv mode change
+  REGISTER #(
+      .ADDRESS(32'h348),
+      .WIDTH  (8)
+  ) mscratchcsw (
+      .clock(clock),
+      .reset(reset),
+      .address(address),
+      .write_enable(write_enable),
+      .write_data(write_data[7:0]),
+      .read_data(read_data[7:0])
+  );
+  // Conditional scratch swap on level change
+  REGISTER #(
+      .ADDRESS(32'h349),
+      .WIDTH  (8)
+  ) mscratchcswl (
+      .clock(clock),
+      .reset(reset),
+      .address(address),
+      .write_enable(write_enable),
+      .write_data(write_data[7:0]),
+      .read_data(read_data[7:0])
+  );
+  // Current interrupt levels
+  REGISTER #(
+      .ADDRESS(32'hFB1),
+      .WIDTH(8)  // Really not sure about this one, think it's one per interrupt??
+  ) mintstatus (
+      .clock(clock),
+      .reset(reset),
+      .address(address),
+      .write_enable(write_enable),
+      .write_data(write_data[7:0]),
+      .read_data(read_data[7:0])
+  );
 endmodule
-;
+
+
+module REGISTER #(
+    parameter WIDTH = 32,
+    parameter ADDRESS_WIDTH = 32,
+    parameter DEFAULT_VALUE = 0,
+    parameter ADDRESS = 0
+) (
+    input [WIDTH-1:0] write_data,
+    input [ADDRESS_WIDTH-1:0] address,
+    input write_enable,
+    input clock,
+    input reset,
+
+    output reg [WIDTH-1:0] read_data
+);
+  initial begin
+    read_data <= DEFAULT_VALUE;
+  end
+  always @(posedge clock) begin
+    unique case (reset) inside
+      1: read_data <= DEFAULT_VALUE;
+      0: begin
+
+        unique case (address) inside
+          ADDRESS: begin
+            unique case (write_enable) inside
+              0: read_data <= read_data;
+              1: read_data <= write_data;
+            endcase
+          end
+          default: begin
+            read_data <= 0;
+          end
+        endcase
+      end
+    endcase
+  end
+endmodule

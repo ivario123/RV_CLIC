@@ -63,3 +63,9 @@ All non existent inputs are tied to 0.
 
 interrupt pending should be interpreted as $`(clicintip[i]~\&\&~ clicintie[i]) \neq 0 \rightarrow interrupt~pending`$,
 software pending or enabling interrupts must take effect in a bounded amount of time ( I would like to have this bound to 1 cycle ). However there is no hard requirement that the $`clicintie`$ or $`clicintip`$ be evaluated immediately after explicit write to them.
+
+## features left out due to time constraints and application target
+
+The CLIC can be CLINT compatible, this will be disregarded due to time constraints and due to the fact that this implementation is targeting RTIC.
+
+The CLIC can support all RISC-V privilege modes, this will also be disregarded for this implementations since there is no supervisor in RTIC.

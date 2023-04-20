@@ -37,7 +37,7 @@ module REGBLOCK #(
     parameter START_ADDRESS = 0,
     parameter REG_SPACING = 1,
     parameter END_ADDRESS = START_ADDRESS + REG_SPACING * DATA_WIDTH * (REGISTERS - 1),
-    parameter DEFAULT_VALUE = 0,
+    parameter [DATA_WIDTH-1:0] DEFAULT_VALUE = 0,
     parameter ACCESS_TYPE = READ_WRITE
 ) (
     input clock,
@@ -45,7 +45,9 @@ module REGBLOCK #(
     input [ADDRESS_WIDTH-1:0] address,
     input write_enable,
     input [DATA_WIDTH-1:0] write_data,
+    // Output to buss
     output reg [DATA_WIDTH-1:0] read_data,
+    // Internal access only
     output reg [DATA_WIDTH-1:0] registers[REGISTERS-1:0]
 );
   initial begin
@@ -53,8 +55,6 @@ module REGBLOCK #(
       registers[i] <= DEFAULT_VALUE;
     end
   end
-
-
   always @(posedge clock) begin
     int read;
     case (reset)
@@ -69,14 +69,16 @@ module REGBLOCK #(
       1'b0: begin
         // Do bounds checking on the address and make sure it is aligned
         if (address >= START_ADDRESS && address <= END_ADDRESS && (address-START_ADDRESS) % (REG_SPACING*DATA_WIDTH) == 0) begin
-          if (write_enable && ACCESS_TYPE != READ_ONLY) 
+          if (write_enable && ACCESS_TYPE != READ_ONLY) begin
+            $display("Wrote to address: %h = , value %h", address, write_data);
             // Write data to the register file if write enable is high
             registers[(address-START_ADDRESS)/REG_SPACING] <= write_data;
+          end
           // Set the new read data
           read = registers[(address-START_ADDRESS)/REG_SPACING];
         end else begin
-          // If address is out of bounds, read the previous value
-          read = read_data;
+          // If address is out of bounds, read nothing since it was a read from other register
+          read = 0;
         end
       end
     endcase
