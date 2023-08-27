@@ -1,3 +1,7 @@
 *clic.pdf
 *vivado*
 .Xil/*
+**.g*
+**/sims/**
+**/__pycache__/**
+**/.vscode/*
