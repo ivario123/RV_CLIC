@@ -31,4 +31,7 @@ if __name__ == "__main__":
     args = parse_args()
     if args.simulate:
         # Run all simulations if the user specified the -s flag.
+        import sys
+
+        sys.setrecursionlimit(100000)
         sim()

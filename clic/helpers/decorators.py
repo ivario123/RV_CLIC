@@ -3,6 +3,7 @@ from .simulators import _run
 from typing import List
 import inspect
 import os
+import traceback
 
 
 def str_rpr(cls):
@@ -10,7 +11,7 @@ def str_rpr(cls):
     Sets the classes' __repr__ to return self.__str__.
     """
     if cls.__str__ == None:
-        cls.__str__ = lambda self: "<{}>".format(cls.__name__)
+        cls.__str__ = lambda self: f"<{cls.name}>"
     cls.__repr__ = cls.__str__
     return cls
 
@@ -101,6 +102,8 @@ def simulation(imports: List[str] = ["Tick", "Settle", "Simulator"], **kwargs):
 
 
     """
+    # We never get this far without simulating
+    sim = os.environ.get("SIMULATE", "0")
     assert (
         len(kwargs) == 1
     ), "Only one keyword argument is allowed. Example: @simulation(model = model)"
@@ -109,6 +112,13 @@ def simulation(imports: List[str] = ["Tick", "Settle", "Simulator"], **kwargs):
     grp_name = base_model.__class__.__name__.upper().replace("_", " ")
 
     def decorator(func):
+        if sim not in ["1", func.__name__]:
+
+            def _unused(*_):
+                pass
+
+            return _unused
+
         function_code = inspect.getsource(func).split("\n")
 
         # Extract all lines that contain def test_
@@ -120,18 +130,24 @@ def simulation(imports: List[str] = ["Tick", "Settle", "Simulator"], **kwargs):
         import re
 
         test_names = [
-            re.search(r"def\s(\w+)\(", function_code[line]).group(1)
-            for line in test_lines
+            re.search(r"def\s(\w+)\(", function_code[line]) for line in test_lines
         ]
+        # Handle None case
+        test_names = [test.group(1) for test in test_names if test is not None]
 
         # Generate new function that returns a list of the tests
         def rebuild(function_code):
+            """
+            Generates new code for each test case that imports
+            the needed parts of the amaranth library.
+            """
             # Check if code is indented with spaces or tabs
 
             def n_indents(x):
                 for i, c in enumerate(x):
                     if c != " ":
                         return i
+                return 0
 
             indent = lambda x, y: " " * n_indents(y) + x
 
@@ -141,6 +157,7 @@ def simulation(imports: List[str] = ["Tick", "Settle", "Simulator"], **kwargs):
                 if index >= len(test_names):
                     break
                 if test_names[index] in line:
+                    j = 0
                     # Locate last line of function def
                     for j in range(i, len(function_code)):
                         if ":" in function_code[j]:
@@ -175,8 +192,14 @@ def simulation(imports: List[str] = ["Tick", "Settle", "Simulator"], **kwargs):
             return code
 
         def sim_run(*_, **__):
+            """
+            Actual simulation code, this is the function that will be
+            used in the end.
+            """
+
             # Build new function that returns the tests
             code = rebuild(function_code)
+
             # Place model_name=base_model in the global namespace
             globals()[model_name] = base_model
 
@@ -201,16 +224,21 @@ def simulation(imports: List[str] = ["Tick", "Settle", "Simulator"], **kwargs):
                     print(f"Test {fname} for {grp_name} failed")
                     print(f"{'-'*50}{ENDC}")
                     print(e)
+                    print(traceback.format_exc())
                     errors.append(e)
             if len(errors) == 0:
                 print(
-                    f"{'-'*50}\n{OK_BLUE}All {passcount} tests for {grp_name} passed{ENDC}\n{'-'*50}"
+                    f"""{'-'*50}
+{OK_BLUE}All {passcount} tests for {grp_name} passed{ENDC}
+{'-'*50}"""
                 )
             else:
                 print(
                     f"""{'-'*50}
 Results for {grp_name}:
-\t{FAIL} {len(errors)} tests failed{ENDC}\n\t{OK_BLUE} {passcount} tests passed\n{ENDC}{'-'*50}"""
+\t{FAIL} {len(errors)} tests failed{ENDC}
+\t{OK_BLUE} {passcount} tests passed
+{ENDC}{'-'*50}"""
                 )
 
             # Restore namespace
@@ -234,29 +262,34 @@ def simulator(func):
     It runs the function in a simulator and intercepts the output.
     If the output contains the word error it will print the error and the number of errors.
     """
-    if os.environ.get("SIMULATE", "0") == "0":
+    sim = os.environ.get("SIMULATE", "0")
+    if sim != "0":
 
         def wrapper(*args, **kwargs):
-            print(f"Set $Env:SIMULATE to 1 to run simulations and pass -s to the clic")
+            print(f"Running {func.__name__}")
+            errors = []
+            with ContextManager() as out:
+                func(*args, **kwargs)
+            for line in out:
+                print(line)
+                if "error" in line.lower():
+                    errors.append(line)
+
+            if len(errors) > 0:
+                print(f"{FAIL}{len(errors)} Errors found during simulation{ENDC}")
+                for error in errors:
+                    print(f"{GOLD}*{ENDC} {FAIL}{error}{ENDC}")
+                print()
+            else:
+                print(f"{OK_GREEN}No errors found during simulation{ENDC}")
 
         return wrapper
+    else:
+        print(sim)
 
-    def wrapper(*args, **kwargs):
-        print(f"Running {func.__name__}")
-        errors = []
-        with ContextManager() as out:
-            func(*args, **kwargs)
-        for line in out:
-            print(line)
-            if "error" in line.lower():
-                errors.append(line)
+        def _unused(*_):
+            print(
+                f"{FAIL}Set $Env:SIMULATE to 1 or a specific simulation name to run simulations and pass -s to the clic{ENDC}"
+            )
 
-        if len(errors) > 0:
-            print(f"{FAIL}{len(errors)} Errors found during simulation{ENDC}")
-            for error in errors:
-                print(f"{GOLD}*{ENDC} {FAIL}{error}{ENDC}")
-            print()
-        else:
-            print(f"{OK_GREEN}No errors found during simulation{ENDC}")
-
-    return wrapper
+        return _unused

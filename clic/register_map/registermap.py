@@ -58,15 +58,16 @@ class RegisterMap(Elaboratable):
         BaseAddresses.CLICINTIP,
     ]
 
-    @info(type=InfoType.MODULE, module="RegisterMap")
+    # @info(type=InfoType.MODULE, module="RegisterMap")
     def __init__(
         self,
     ):
         self.address = Signal(32)
         self.write_data = Signal(32)
         self.write_enable = Signal()
+        self.reset = Signal()
         self.read_data = Signal(32)
-
+        self.is_quad_mapped = Signal()
         """
         Creates the memory map for the CLIC
         """
@@ -100,26 +101,61 @@ class RegisterMap(Elaboratable):
             file_description="CLIC interrupt trigger register",
             start_address=self.BaseAddresses.CLICINTTRIG.value,
         )
-        # * Generic 4096 registers
-        reg_4096 = lambda name, details: RegisterFile(
+        self.clicintip = RegisterFile(
             register_count=4096,
-            register_width=1,
+            register_width=8,
             register_type=RegisterType.READ_WRITE,
             initial_values=lambda _: 0x00,
-            file_name=name,
-            file_description=details,
+            file_name="clicintip",
+            file_description="CLIC interrupt pending register",
             start_address=0x0,  # Has to be remapped in this module
             bounds_check=True,  # No need to check bounds, as that is handled by this module
         )
 
-        # * clicintip
-        self.clicintip = reg_4096("clicintip", "CLIC interrupt pending register")
         # * clicintie
-        self.clicintie = reg_4096("clicintie", "CLIC interrupt enable register")
+        self.clicintie = RegisterFile(
+            register_count=4096,
+            register_width=8,
+            register_type=RegisterType.READ_WRITE,
+            initial_values=lambda _: 0x00,
+            file_name="clicintie",
+            file_description="CLIC interrupt enable register",
+            start_address=0x0,  # Has to be remapped in this module
+            bounds_check=True,  # No need to check bounds, as that is handled by this module
+        )
+
         # * clicintattr
-        self.clicintattr = reg_4096("clicintattr", "CLIC interrupt attribute register")
+        self.clicintattr = RegisterFile(
+            register_count=4096,
+            register_width=8,
+            register_type=RegisterType.READ_WRITE,
+            initial_values=lambda _: 0x00,
+            file_name="clicintattr",
+            file_description="CLIC interrupt attribute register",
+            start_address=0x0,  # Has to be remapped in this module
+            bounds_check=True,  # No need to check bounds, as that is handled by this module
+        )
+
         # * clicintctl
-        self.clicintctl = reg_4096("clicintctl", "CLIC interrupt control register")
+        self.clicintctl = RegisterFile(
+            register_count=4096,
+            register_width=8,
+            register_type=RegisterType.READ_WRITE,
+            initial_values=lambda _: 0x00,
+            file_name="clicintctl",
+            file_description="CLIC interrupt control register",
+            start_address=0x0,  # Has to be remapped in this module
+            bounds_check=True,  # No need to check bounds, as that is handled by this module
+        )
+        self.regs = [
+            self.cliccfg,
+            self.clicinfo,
+            self.clicinttrig,
+            self.clicintip,
+            self.clicintie,
+            self.clicintattr,
+            self.clicintctl,
+        ]
 
     def ports(self):
         return [
@@ -132,204 +168,158 @@ class RegisterMap(Elaboratable):
     def elaborate(self, platform):
         m = Module()
 
-        # Create intermediate signals for pure memory mapped registers
-        addr, _, en, read = [Signal().like(signal) for signal in self.ports()]
-        write_data_8b = Signal(8)
-        quad_addr = Signal.like(self.address)
-        read_intermediate = Signal.like(self.read_data)
-        is_quad_mapped = Signal()
-        register = Signal(2)
+        # Change mapping if we are above certain threshold
+        m.d.comb += self.is_quad_mapped.eq(self.address >= 0x1000)
 
-        m.d.comb += [
-            en.eq(0x0),
-        ]
-        m.d.comb += is_quad_mapped.eq(self.address >= 0x1000)
-        m.d.comb += register.eq(self.address[-2:])  # 2 LSBs
-        m.d.comb += quad_addr.eq(
-            (self.address - self.BaseAddresses.CLICINTIP.value) >> 2
+        def add_module(self, m, *modules):
+            # Add submodules
+            local_dict = {"m": m, "self": self}
+            for module in modules:
+                exec(f"m.submodules.{module} = self.{module}", local_dict, globals())
+            # This is fine since the function only exists in this scope.
+            locals().update(local_dict)
+            return self, m
+
+        self, m = add_module(
+            self,
+            m,
+            "cliccfg",
+            "clicinfo",
+            "clicinttrig",
+            "clicintip",
+            "clicintie",
+            "clicintattr",
+            "clicintctl",
         )
-
-        # * cliccfg
-        m.submodules.cliccfg = cliccfg = self.cliccfg
-        # * clicinfo
-        m.submodules.clicinfo = clicinfo = self.clicinfo
-        # * clicinttrig
-        m.submodules.clicinttrig = clicinttrig = self.clicinttrig
-        # * clicintip
-        m.submodules.clicintip = clicintip = self.clicintip
-        # * clicintie
-        m.submodules.clicintie = clicintie = self.clicintie
-        # * clicintattr
-        m.submodules.clicintattr = clicintattr = self.clicintattr
-        # * clicintctl
-        m.submodules.clicintctl = clicintctl = self.clicintctl
-
-        # direct_mapped = [cliccfg, clicinfo, clicinttrig]
-        # quad_mapped = [clicintip, clicintie, clicintattr, clicintctl]
-
-        m.d.comb += write_data_8b.eq(self.write_data[8:])
+        # This is dangerous, but since we know what we are adding it's fine
 
         # We have some registers that are mapped in quad mode, and some that are mapped in direct mode
         # The quad mapped registers occur in order reg1,reg2,reg3,reg4,reg1,reg2,reg3,reg4,reg1,reg2,reg3,reg4,reg1,reg2,reg3,reg4
         # The first register that is quad mapped is clicintip, which is at address 0x1000 all addresses after that are quad mapped
         # All addresses before that are direct mapped
 
+        # Pre map write data, this is common for all regs
+        for reg in self.regs:
+            m.d.comb += [reg.write_data.eq(self.write_data)]
         # Case 1: Direct mapped
-        with m.If(~is_quad_mapped):
-            # Switch on the register address
-            # Start addresses are as follows:
-            # CLICCFG = 0x0000
-            # CLICINFO = 0x0004
-            # CLICINTTRIG = 0x0040
-
-            # * cliccfg
-            with m.If(
-                (self.address >= self.BaseAddresses.CLICCFG.value)
-                * (self.address < self.BaseAddresses.CLICINFO.value)
-            ):
+        with m.Switch(self.is_quad_mapped):
+            with m.Case(0):
+                # Switch on the register address
+                # Start addresses are as follows:
+                # CLICCFG = 0x0000
+                # CLICINFO = 0x0004
+                # CLICINTTRIG = 0x0040
+                a = self.BaseAddresses
+                addresses = [a.CLICCFG, a.CLICINFO.value, a.CLICINTTRIG.value]
+                self.is_cliccfg = is_cliccfg = Signal()
+                self.is_clicinfo = is_clicinfo = Signal()
+                self.is_clicinttrig = is_clicinttrig = Signal()
+                addr = self.address
                 m.d.comb += [
-                    cliccfg.write_data.eq(self.write_data),
-                    cliccfg.write_enable.eq(self.write_enable),
-                    cliccfg.address.eq(self.address),
-                    self.read_data.eq(cliccfg.read_data),
+                    is_cliccfg.eq(
+                        (addr >= a.CLICCFG.value) * (addr < a.CLICINFO.value)
+                    ),
+                    is_clicinfo.eq(
+                        (addr >= a.CLICINFO.value) * (addr < a.CLICINTTRIG.value)
+                    ),
+                    is_clicinttrig.eq(
+                        (addr >= a.CLICINTTRIG.value) * (addr < a.CLICINTIP.value)
+                    ),
                 ]
-            # * clicinfo
-            with m.Elif(
-                (self.address >= self.BaseAddresses.CLICINFO.value)
-                * (self.address < self.BaseAddresses.CLICINTTRIG.value)
-            ):
+                self.reg = reg = Signal(3)
                 m.d.comb += [
-                    clicinfo.write_data.eq(self.write_data),
-                    clicinfo.write_enable.eq(self.write_enable),
-                    clicinfo.address.eq(self.address),
-                    self.read_data.eq(clicinfo.read_data),
+                    reg[0].eq(is_cliccfg),
+                    reg[1].eq(is_clicinfo),
+                    reg[2].eq(is_clicinttrig),
                 ]
-            # * clicinttrig
-            with m.Elif(
-                (self.address >= self.BaseAddresses.CLICINTTRIG.value)
-                * (self.address < self.BaseAddresses.CLICINTIP.value)
-            ):
-                m.d.comb += [
-                    clicinttrig.write_data.eq(self.write_data),
-                    clicinttrig.write_enable.eq(self.write_enable),
-                    clicinttrig.address.eq(self.address),
-                    self.read_data.eq(clicinttrig.read_data),
-                ]
-        # Case 2: Quad mapped
-        with m.Else():
-            relative_addr = Signal.like(self.address)
-            m.d.comb += relative_addr.eq(
-                self.address - self.BaseAddresses.CLICINTIP.value
-            )
-            # Switch on the register address % 4
-            # Start addresses are as follows:
-            # CLICINTIP = 0x1000
-            # CLICINTIE = 0x1001
-            # CLICINTATTR = 0x1002
-            # CLICINTCTL = 0x1003
-            # The % 4 is the 2 LSBs of the address
-            lsbs = Signal(2)
-            m.d.comb += lsbs.eq(relative_addr[0:2])
-            # * clicintip
-            with m.If(lsbs == 0):
-                m.d.comb += [
-                    clicintip.write_data.eq(self.write_data),
-                    clicintip.write_enable.eq(self.write_enable),
-                    clicintip.address.eq(self.address),
-                    self.read_data.eq(clicintip.read_data),
-                ]
-            # * clicintie
-            with m.Elif(lsbs == 1):
-                m.d.comb += [
-                    clicintie.write_data.eq(self.write_data),
-                    clicintie.write_enable.eq(self.write_enable),
-                    clicintie.address.eq(self.address),
-                    self.read_data.eq(clicintie.read_data),
-                ]
-            # * clicintattr
-            with m.Elif(lsbs == 2):
-                m.d.comb += [
-                    clicintattr.write_data.eq(self.write_data),
-                    clicintattr.write_enable.eq(self.write_enable),
-                    clicintattr.address.eq(self.address),
-                    self.read_data.eq(clicintattr.read_data),
-                ]
-            # * clicintctl
-            with m.Elif(lsbs == 3):
-                m.d.comb += [
-                    clicintctl.write_data.eq(self.write_data),
-                    clicintctl.write_enable.eq(self.write_enable),
-                    clicintctl.address.eq(self.address),
-                    self.read_data.eq(clicintctl.read_data),
-                ]
+                with m.Switch(reg):
+                    with m.Case(0b001):
+                        # This is cliccfg
+                        m.d.comb += [
+                            # * Inputs
+                            self.cliccfg.write_enable.eq(self.write_enable),
+                            self.cliccfg.address.eq(self.address),
+                            self.cliccfg.reset.eq(self.reset),
+                            # * Outputs
+                            self.read_data.eq(self.cliccfg.read_data),
+                        ]
+                    with m.Case(0b010):
+                        # This is clicinfo
+                        m.d.comb += [
+                            # * Inputs
+                            self.clicinfo.write_enable.eq(self.write_enable),
+                            self.clicinfo.address.eq(self.address),
+                            self.clicinfo.reset.eq(self.reset),
+                            # * Outputs
+                            self.read_data.eq(self.clicinfo.read_data),
+                        ]
+                    with m.Case(0b100):
+                        # This is clicinttrig
+                        m.d.comb += [
+                            # * Inputs
+                            self.clicinttrig.write_enable.eq(self.write_enable),
+                            self.clicinttrig.address.eq(self.address),
+                            self.clicinttrig.reset.eq(self.reset),
+                            # * Outputs
+                            self.read_data.eq(self.clicinttrig.read_data),
+                        ]
+            # Case 2: Quad mapped
+            with m.Case(1):
+                self.address_intermediate = address = Signal.like(self.address)
+                self.lsbs = Signal(2)
+                self.relative_addr = relative_addr = Signal.like(self.address)
 
-        """
+                # Switch on the register address % 4
+                # Start addresses are as follows:
+                # CLICINTIP = 0x1000
+                # CLICINTIE = 0x1001
+                # CLICINTATTR = 0x1002
+                # CLICINTCTL = 0x1003
+                # The % 4 is the 2 LSBs of the address
+                m.d.comb += relative_addr.eq(
+                    self.address - self.BaseAddresses.CLICINTIP.value
+                )
+                m.d.comb += self.lsbs.eq(relative_addr[0:2])
+                m.d.comb += address.eq(self.relative_addr - self.lsbs)
 
+                with m.Switch(self.lsbs):
+                    with m.Case(0):
+                        m.d.comb += [
+                            # * Inputs
+                            self.clicintip.write_enable.eq(self.write_enable),
+                            self.clicintip.address.eq(address),
+                            self.clicintip.reset.eq(self.reset),
+                            # * Outputs
+                            self.read_data.eq(self.clicintip.read_data),
+                        ]
+                    with m.Case(1):
+                        m.d.comb += [
+                            # * Inputs
+                            self.clicintie.write_enable.eq(self.write_enable),
+                            self.clicintie.address.eq(address),
+                            self.clicintie.reset.eq(self.reset),
+                            # * Outputs
+                            self.read_data.eq(self.clicintie.read_data),
+                        ]
+                    with m.Case(2):
+                        m.d.comb += [
+                            # * Inputs
+                            self.clicintattr.write_enable.eq(self.write_enable),
+                            self.clicintattr.address.eq(address),
+                            self.clicintattr.reset.eq(self.reset),
+                            # * Outputs
+                            self.read_data.eq(self.clicintattr.read_data),
+                        ]
+                        # We can't have more than one write at a time.
+                    with m.Case(3):
+                        m.d.comb += [
+                            # * Inputs
+                            self.clicintctl.write_enable.eq(self.write_enable),
+                            self.clicintctl.address.eq(address),
+                            self.clicintctl.reset.eq(self.reset),
+                            # * Outputs
+                            self.read_data.eq(self.clicintctl.read_data),
+                        ]
+                        # We can't have more than one write at a time.
 
-
-        for reg in direct_mapped:
-            m.d.comb += [
-                reg.write_data.eq(self.write_data),
-            ]
-
-        for reg in quad_mapped:
-            m.d.comb += reg.address.eq(quad_addr)
-            m.d.comb += reg.write_data.eq(write_data_8b)
-        # Given that the
-        is_cliccfg, is_clicinfo, is_clicinttrig = [Signal(1) for _ in range(3)]
-        m.d.comb += [
-            is_cliccfg.eq(cliccfg.is_for_me & ~cliccfg._out_of_bounds),
-            is_clicinfo.eq(clicinfo.is_for_me & ~clicinfo._out_of_bounds),
-            is_clicinttrig.eq(clicinttrig.is_for_me & ~clicinttrig._out_of_bounds),
-        ]
-
-        # Check if address is clicintip[0] or larger
-
-        with m.If(is_quad_mapped):
-            zeros = Signal(32 - clicintip.read_data.width)
-            m.d.comb += zeros.eq(0x0)
-            with m.Switch(register):
-                lookup = ["clicintip", "clicintie", "clicintattr", "clicintctl"]
-                for i in range(4):
-                    exec(
-                        f""with m.Case(0b{i:02b}):
-                                m.d.comb += read_intermediate.eq(Cat(zeros, clicintip.read_data))
-                                m.d.comb += {lookup[i]}.write_enable.eq(self.write_enable)
-                                m.d.comb += {lookup[i]}.write_data.eq(self.write_data)
-                         "",
-                        globals(),
-                        locals(),
-                    )
-        with m.Else():
-            lookup = ["cliccfg", "clicinfo", "clicinttrig"]
-
-            m.d.comb += [
-                addr.eq(self.address),
-            ]
-            with m.If(is_cliccfg):
-                m.d.comb += [
-                    cliccfg.write_enable.eq(self.write_enable),
-                    cliccfg.write_data.eq(self.write_data),
-                    cliccfg.address.eq(self.address),
-                    read_intermediate.eq(cliccfg.read_data),
-                ]
-            with m.Elif(is_clicinfo):
-                m.d.comb += [
-                    clicinfo.write_enable.eq(self.write_enable),
-                    clicinfo.write_data.eq(self.write_data),
-                    clicinfo.address.eq(self.address),
-                    read_intermediate.eq(clicinfo.read_data),
-                ]
-            with m.Elif(is_clicinttrig):
-                m.d.comb += [
-                    clicinttrig.write_enable.eq(self.write_enable),
-                    clicinttrig.write_data.eq(self.write_data),
-                    clicinttrig.address.eq(self.address),
-                    read_intermediate.eq(clicinttrig.read_data),
-                ]
-
-        m.d.comb += [
-            self.read_data.eq(read_intermediate),
-        ]
-        """
         return m

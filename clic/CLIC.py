@@ -1,4 +1,5 @@
-from clic import Elaboratable
+from amaranth import Elaboratable
+from clic.register_map import RegisterMap, RegisterFile
 
 
 class CLIC(Elaboratable):
@@ -12,7 +13,7 @@ class CLIC(Elaboratable):
         """
         pass
 
-    def elaborate(self, platform):
+    def elaborate(self, *_):
         """
         Builds the CLIC module.
         """

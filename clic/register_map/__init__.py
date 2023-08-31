@@ -1,3 +1,4 @@
+from os import write
 from helpers import decorators
 from helpers.decorators import simulation, test, simulator
 from .registerfile import *
@@ -26,6 +27,14 @@ def sim():
     def reg_file():
         @test
         def write_all_read_all():
+            """
+            Writes to every register in the register file. 
+
+            Tests:
+                - Write
+                - Read
+                - Decoupling
+            """
             for i in range(registerfile.register_count):
                 yield registerfile.write_enable.eq(1)
                 yield registerfile.address.eq(
@@ -35,14 +44,17 @@ def sim():
                 yield Tick()
                 yield registerfile.write_enable.eq(0)
                 yield Tick()
-                yield Tick()
-                print(f"Register {i} value: {(yield registerfile.read_data)}")
                 assert (yield registerfile._out_of_bounds) == 0
                 assert (yield registerfile.read_data) == i + 1
 
         @test
         def address_out_of_bounds():
-            print("Some data")
+            """
+            Writes to a too large address
+            
+            Tests:
+                - Bounds checking
+            """
             yield registerfile.address.eq(
                 registerfile.register_count * registerfile.register_width
                 + 400 * registerfile.register_width
@@ -53,59 +65,60 @@ def sim():
             yield Tick()
             yield registerfile.write_enable.eq(0)
             yield Tick()
-            yield Tick()
-            print(f"Register 0 value: {(yield registerfile.read_data)}")
-            print(f"Actual address: {(yield registerfile.address)}")
-            print(f"Address: {(yield registerfile._address)}")
-            print(f"is_for_me: {(yield registerfile.is_for_me)}")
             assert (yield registerfile._out_of_bounds) == 1
             assert (yield registerfile.read_data) == 0x0
 
         @test
         def to_small_address():
+            """
+            Writes to an address that is not in the register.
+            
+            Tests:
+                - Bounds checking
+            """
             yield registerfile.address.eq(0x00)
             yield registerfile.write_enable.eq(1)
             yield registerfile.write_data.eq(0x0000111)
             yield Tick()
-            yield Tick()
             yield registerfile.write_enable.eq(0)
-            yield Tick()
             yield Tick()
             assert (yield registerfile.read_data) == 0x0
 
         @test
         def register_file():
+            """
+            Writes to the first register and reads the data from it.
+            
+            Tests:
+                - Basic instantiation
+                - Basic Read/Write
+            """
             yield registerfile.write_enable.eq(1)
             yield registerfile.address.eq(0x00 + registerfile.start_address)
             yield registerfile.write_data.eq(0x0000111)
             yield Tick()
-            print(f"Register 0 value: {(yield registerfile.read_data)}")
             yield registerfile.write_enable.eq(0)
             yield Tick()
-            print(f"Register 0 value: {(yield registerfile.read_data)}")
-            yield Settle()
-            yield Tick()
-            print(f"Register 0 value: {(yield registerfile.read_data)}")
-            print((yield registerfile.is_for_me))
-            print(f"Is for me: {(yield registerfile.is_for_me)}")
-            print(f"Internal address: {(yield registerfile._address)}")
-            print(f"Address: {(yield registerfile.address)}")
-            # print(f"Is out of bounds: {(yield registerfile._out_of_bounds)}")
-            print((yield registerfile._address))
-            print((yield registerfile.address))
             assert (yield registerfile.read_data) == 0x0000111
 
         @test
         def write_to_2_read_from_3():
+            """
+            Writes from reg nr 2 in the file
+            reads from reg nr 2 i.e. 0x04 
+            reads from register nr 3 i.e. 0x08 
+
+            Tests:
+                - Basic read/write
+                - Decoupling
+            """
             yield registerfile.write_enable.eq(1)
             yield registerfile.address.eq(0x04 + registerfile.start_address)
             yield registerfile.write_data.eq(0x0000111)
             yield Tick()
-            yield Tick()
             yield registerfile.write_enable.eq(0)
             print(f"Register 2 value: {(yield registerfile.read_data)}")
             yield registerfile.address.eq(0x08 + registerfile.start_address)
-            yield Tick()
             yield Tick()
             print(f"Register 3 value: {(yield registerfile.read_data)}")
             assert (yield registerfile.read_data) == 0x0
@@ -114,70 +127,127 @@ def sim():
     def reg_map():
         @test
         def register_map():
-            cycle_counter = 0
+            """
+            Writes and reads from a single register
+            
+            Tests:
+                - Basic instantiation
+                - Basic Write
+                - Basic Read
+            """
             working_register = registermap.BaseAddresses.CLICINTTRIG
-            value_to_write = 0x0000111
+            value_to_write = 15
             yield registermap.address.eq(working_register)
             yield registermap.write_enable.eq(1)
             yield registermap.write_data.eq(value_to_write)
             yield Tick()
-            yield Tick()
             yield registermap.write_enable.eq(0)
             yield Tick()
-            yield Tick()
-            yield registermap.address.eq(working_register)
-            yield Tick()
-            yield Tick()
-            yield Tick()
-            yield Tick()
-            yield Tick()
-            yield Tick()
             print(f"Register 0 value: {(yield registermap.read_data)}")
-            assert (yield registermap.read_data) == 0x0000111
+            assert (yield registermap.read_data) == 15
 
         @test
         def write_all_read_all():
+            """
+            Writes to all register files in order. 
+            Tests:
+                - Write
+                - Read
+            """
             for i, reg in enumerate(registermap.write_able_addresses):
                 write_value = i + 1
                 print(f"Register {reg.name} @0x{reg.value:x}")
-                yield registermap.address.eq(reg.value.as_integer_ratio()[0])
+                yield registermap.address.eq(reg)
                 yield registermap.write_enable.eq(1)
                 yield registermap.write_data.eq(write_value)
                 yield Tick()
                 yield registermap.write_enable.eq(0)
                 yield Tick()
-                yield registermap.address.eq(reg.value)
-                yield Tick()
-                yield Tick()
-                print(f"Register {reg.name} value: {(yield registermap.read_data)}")
+                print(f"internal_address = {(yield registermap.address)}")
+                print(
+                    f"Register {reg.name} value: {(yield registermap.read_data)} should be {write_value}"
+                )
+                if (yield registermap.is_quad_mapped):
+                    print("Register is quad mapped")
+
+                assert (yield registermap.read_data) == write_value
 
                 # assert (yield registermap.read_data) == i
 
         @test
         def write_to_one_read_from_all():
-            yield registermap.address.eq(
-                registermap.BaseAddresses.CLICCFG.value.as_integer_ratio()[0]
-            )
-            yield registermap.write_enable.eq(1)
-            yield registermap.write_data.eq(0x0000111)
-            yield Tick()
-            yield registermap.write_enable.eq(0)
+            """
+            Writes to every register file and then asserts that no other register files
+            reflect that same change. Resets register bank inbetween writes.
+
+            Tests:
+                - Write
+                - Read
+                - Decoupling
+                - Reset functionallity
+            """
+            for reg in registermap.write_able_addresses:
+                for reg in registermap.write_able_addresses:
+                    yield registermap.reset.eq(1)
+                    yield registermap.address.eq(reg)
+                    yield Tick()
+                    yield registermap.reset.eq(0)
+                write_val = 1
+                # Write the data to reg
+                yield registermap.address.eq(reg)
+                yield registermap.write_enable.eq(1)
+                yield registermap.write_data.eq(write_val)
+                yield Tick()
+                # Dissable writing
+                yield registermap.write_enable.eq(0)
+                yield Tick()
+                yield Tick()
+                # print(f"{reg.name} Read val : {(yield registermap.read_data)}")
+
+                # Value should now be in reg but no other reg, go over the registers, read all registers
+                # If no other register but reg has the correct value, go on to the next one.
+                for read_reg in registermap.write_able_addresses:
+                    yield registermap.address.eq(read_reg)
+                    yield Tick()
+
+                    if reg.name == read_reg.name:
+                        if (yield registermap.read_data) != write_val:
+                            print(
+                                f"""
+        Internal state:
+                - write_reg {reg.name}
+                - read_reg {read_reg.name}
+                - expected value {write_val}
+                - addr 0x{(yield registermap.address):x}
+                - reg 0b{(yield registermap.reg):b}
+                - intermediate_addr {(yield registermap.address_intermediate)}
+                - is_quad_mapped {(yield registermap.is_quad_mapped)}
+                - lsbs {(yield registermap.lsbs)}
+                                      """
+                            )
+                        assert (yield registermap.read_data) == write_val
+                    else:
+                        if (yield registermap.read_data) == write_val:
+                            print(
+                                f"""
+        Internal state:
+                - write_reg {reg.name}
+                - read_reg {read_reg.name}
+                - expected value {write_val}
+                - addr 0x{(yield registermap.address):x}
+                - reg 0b{(yield registermap.reg):b}
+                - intermediate_addr {(yield registermap.address_intermediate)}
+                - is_quad_mapped {(yield registermap.is_quad_mapped)}
+                - lsbs {(yield registermap.lsbs)}
+                                      """
+                            )
+                        assert (yield registermap.read_data) != write_val
 
             for reg in registermap.write_able_addresses:
+                yield registermap.reset.eq(1)
                 yield registermap.address.eq(reg)
                 yield Tick()
-                yield Tick()
-                print(f"Register {reg.name} value: {(yield registermap.read_data)}")
-                if reg == registermap.BaseAddresses.CLICCFG:
-                    assert (yield registermap.read_data) == 0x0000111
-                else:
-                    print(f"Register {reg.name} value: {(yield registermap.read_data)}")
-
-    def generate_tests(func):
-        # This function generates all the tests for the register map
-        # Test case 1 : Write to each register, read from each register assert that the value is the same
-        # Test case 2 : Write to one register assert that all other registers are not affected
-        pass
+                print(f"{reg.name} value after reset {(yield registermap.read_data)}")
 
     reg_file()
     reg_map()

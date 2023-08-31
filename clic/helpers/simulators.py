@@ -1,21 +1,48 @@
 from typing import Callable, List
 from amaranth.sim import Simulator
 from amaranth import Elaboratable
-
-
-def run(base_module, process: List[Callable], file_names: List[str] = None):
-    if file_names and len(process) != len(file_names):
-        raise ValueError("process and file_names must have the same length")
-    for i in range(len(process)):
-        print(f"Running simulation for {process[i].__name__}")
-        _run(base_module, process[i], file_names[i] if file_names else None)
-
-
 import os
 from difflib import SequenceMatcher
+from threading import Thread, Lock
+
+mutex = Lock()
+threadpool = []
+max_pool_size = os.environ.get("POOL_SIZE", 3)
 
 
-def _run(base_module: Elaboratable, process: Callable, file_name: str = None):
+def pool_manager():
+    from time import sleep
+
+    while 1:
+        with mutex:
+            for t in threadpool:
+                t.handled = not t.is_alive()
+            threadpool = [t for t in threadpool if t.handled]
+        sleep(2)
+        if len(threadpool) == 0:
+            print("All sims completed")
+            return
+
+
+def run(base_module, process: List[Callable], file_names: List[str] = []):
+    if file_names and len(process) != len(file_names):
+        raise ValueError("process and file_names must have the same length")
+    manager = Thread(target=pool_manager)
+    manager.start()
+    for i in range(len(process)):
+        print(f"Running simulation for {process[i].__name__}")
+        thread = Thread(
+            target=_run,
+            args=(base_module, process[i], file_names[i] if file_names else None),
+        )
+        # _run(base_module, process[i], file_names[i] if file_names else None)
+        thread.start()
+        with mutex:
+            threadpool.append(thread)
+    manager.join()
+
+
+def _run(base_module: Elaboratable, process: Callable, file_name: str = ""):
     # Check if the environment variable $EMIT is set to 1 (or ALL) or similar to function name
     emit = os.environ.get("EMIT", "0")
     emit_this = ["ALL", "1", process.__name__]
@@ -39,14 +66,16 @@ def _run(base_module: Elaboratable, process: Callable, file_name: str = None):
             print(
                 f"ERROR : Simulation failed for {file_name} with error {e}",
             )
+            print(e)
             raise e
 
     if emit:
+        print(file_name)
         with sim.write_vcd(
-            "./sims/" + file_name + ".vcd",
-            "./sims/" + file_name + ".gtkw",
+            f"./sims/{file_name}.vcd",
+            f"./sims/{file_name}.gtkw",
         ):
-            sim_run()
+            sim.run()
     else:
         sim_run()
 
